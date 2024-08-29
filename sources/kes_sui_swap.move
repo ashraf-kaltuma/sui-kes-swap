@@ -2,7 +2,6 @@
 /// This module provides functionalities for swapping between Kenya Shillings (KES) and SUI tokens.
 /// It includes creating liquidity pools, adding/removing liquidity, swapping tokens, and managing daily coupons.
 #[allow(deprecated_usage)]
-
 module kes_sui_swap::kes_sui_swap {
     use sui::tx_context::{sender, epoch};
     use sui::math;
@@ -15,6 +14,7 @@ module kes_sui_swap::kes_sui_swap {
     const EAmount: u64 = 1; // Error code for invalid amount
     const ELotteryInvalidTime: u64 = 2; // Error code for invalid lottery time
     const ELPInvalid: u64 = 3; // Error code for invalid LP amount
+    const EInvalidPool: u64 = 4; // Error code for invalid pool
 
     // Liquidity Pool Token (LP) type to represent the liquidity pool
     public struct LP<phantom KES, phantom SUI> has drop {}
@@ -33,6 +33,7 @@ module kes_sui_swap::kes_sui_swap {
         sui_bal: Balance<SUI>, // Balance of SUI in the pool
         lp_supply: Supply<LP<KES, SUI>>, // Supply of LP tokens for the pool
         coupon_table: Table<address, CouponData>, // Table to store coupon data for users
+        is_active: bool, // Status of the pool (active or inactive)
     }
 
     // Coupon data structure
@@ -45,7 +46,12 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Create a new liquidity pool with KES and SUI
-    public entry fun create_swap_pool<KES, SUI>(kes: Coin<KES>, sui: Coin<SUI>, clock: &Clock, ctx: &mut TxContext) {
+    public entry fun create_swap_pool<KES, SUI>(
+        kes: Coin<KES>, 
+        sui: Coin<SUI>, 
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ) {
         let kes_amount = coin::value(&kes);
         let sui_amount = coin::value(&sui);
 
@@ -68,6 +74,7 @@ module kes_sui_swap::kes_sui_swap {
             sui_bal: sui_balance,
             lp_supply,
             coupon_table: table::new<address, CouponData>(ctx), // Create a new table for storing coupon data
+            is_active: true, // Set the pool as active
         };
         
         // Record coupon data in the coupon table
@@ -83,8 +90,15 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Add liquidity to an existing pool
-    public entry fun add_liquidity<KES, SUI>(pool: &mut Pool<KES, SUI>, kes: Coin<KES>, sui: Coin<SUI>,
-            clock: &Clock, ctx: &mut TxContext) {
+    public entry fun add_liquidity<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        kes: Coin<KES>, 
+        sui: Coin<SUI>,
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ) {
+        assert!(pool.is_active, EInvalidPool); // Ensure the pool is active
+
         let kes_amount = coin::value(&kes);
         let sui_amount = coin::value(&sui);
 
@@ -103,6 +117,7 @@ module kes_sui_swap::kes_sui_swap {
         let factor_b = sui_amount_in_pool / sui_amount;
         let add_kes_amount: u64;
         let add_sui_amount: u64;
+
         // Adjust the ratio if needed and refund excess to user
         if (factor_a == factor_b) {
             add_kes_amount = kes_amount;
@@ -148,7 +163,13 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Remove liquidity from a pool
-    public entry fun remove_liquidity<KES, SUI>(pool: &mut Pool<KES, SUI>, lp: Coin<LP<KES, SUI>>, ctx: &mut TxContext) {
+    public entry fun remove_liquidity<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        lp: Coin<LP<KES, SUI>>, 
+        ctx: &mut TxContext
+    ) {
+        assert!(pool.is_active, EInvalidPool); // Ensure the pool is active
+
         let lp_amount = coin::value(&lp);
 
         // Ensure that the LP amount is positive
@@ -172,7 +193,7 @@ module kes_sui_swap::kes_sui_swap {
         transfer::public_transfer(coin::from_balance(kes_balance, ctx), sender(ctx));
         transfer::public_transfer(coin::from_balance(sui_balance, ctx), sender(ctx));
 
-        // Remove coupon data from the table if LP amount is zero
+        // Update or remove coupon data from the table if LP amount is zero
         assert!(table::contains(&pool.coupon_table, sender(ctx)), ELPInvalid);
         let coupon_data = table::borrow_mut(&mut pool.coupon_table, sender(ctx));
         coupon_data.lp_amount = coupon_data.lp_amount - lp_amount;
@@ -182,7 +203,13 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Swap KES for SUI in the pool
-    public entry fun swap_kes_to_sui<KES, SUI>(pool: &mut Pool<KES, SUI>, kes: Coin<KES>, ctx: &mut TxContext) {
+    public entry fun swap_kes_to_sui<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        kes: Coin<KES>, 
+        ctx: &mut TxContext
+    ) {
+        assert!(pool.is_active, EInvalidPool); // Ensure the pool is active
+
         let swap_kes_amount = coin::value(&kes) as u128;
         let kes_amount_in_pool = balance::value(&pool.kes_bal) as u128;
         let sui_amount_in_pool = balance::value(&pool.sui_bal) as u128;
@@ -199,7 +226,13 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Swap SUI for KES in the pool
-    public entry fun swap_sui_to_kes<KES, SUI>(pool: &mut Pool<KES, SUI>, sui: Coin<SUI>, ctx: &mut TxContext) {
+    public entry fun swap_sui_to_kes<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        sui: Coin<SUI>, 
+        ctx: &mut TxContext
+    ) {
+        assert!(pool.is_active, EInvalidPool); // Ensure the pool is active
+
         let swap_sui_amount = coin::value(&sui) as u128;
         let kes_amount_in_pool = balance::value(&pool.kes_bal) as u128;
         let sui_amount_in_pool = balance::value(&pool.sui_bal) as u128;
@@ -216,7 +249,11 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Get a daily coupon based on the user's LP amount
-    public entry fun get_daily_coupon<KES, SUI>(pool: &mut Pool<KES, SUI>, lottery_type: u64, ctx: &mut TxContext) {
+    public entry fun get_daily_coupon<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        lottery_type: u64, 
+        ctx: &mut TxContext
+    ) {
         // Check if the user has coupon data
         assert!(table::contains(&pool.coupon_table, sender(ctx)), EAmount);
         let coupon_data = table::borrow_mut(&mut pool.coupon_table, sender(ctx));
@@ -249,38 +286,48 @@ module kes_sui_swap::kes_sui_swap {
     }
 
     // Calculate the swap factor of KES to SUI
-    public entry fun get_swap_factor<KES, SUI>(pool: &Pool<KES, SUI>) : u64 {
+    public entry fun get_swap_factor<KES, SUI>(
+        pool: &Pool<KES, SUI>
+    ): u64 {
+        assert!(pool.is_active, EInvalidPool); // Ensure the pool is active
+
         let kes_amount_in_pool = balance::value(&pool.kes_bal);
         let sui_amount_in_pool = balance::value(&pool.sui_bal);
         10000 * kes_amount_in_pool / sui_amount_in_pool // Return the ratio scaled by 10000
     }
 
     // Getters for Coupon fields
-    public fun get_coupon_id(coupon: &Coupon) : u64 {
+    public fun get_coupon_id(coupon: &Coupon): u64 {
         coupon.coupon_id
     }
 
-    public fun get_coupon_lottery_type(coupon: &Coupon) : u64 {
+    public fun get_coupon_lottery_type(coupon: &Coupon): u64 {
         coupon.lottery_type
     }
 
-    public fun get_coupon_lp_amount(coupon: &Coupon) : u64 {
+    public fun get_coupon_lp_amount(coupon: &Coupon): u64 {
         coupon.lp_amount
     }
 
-    public fun get_coupon_epoch(coupon: &Coupon) : u64 {
+    public fun get_coupon_epoch(coupon: &Coupon): u64 {
         coupon.epoch
     }
 
     // Release a coupon, effectively deleting it
     public fun release_coupon(coupon: Coupon) {
-        let Coupon { id, coupon_id:_coupon_id, lottery_type:_lottery_type, lp_amount:_lp_amount, epoch:_epoch } = coupon;
+        let Coupon { id, coupon_id: _coupon_id, lottery_type: _lottery_type, lp_amount: _lp_amount, epoch: _epoch } = coupon;
         id.delete(); // Delete the coupon object
     }
 
     // For testing: Create a coupon with specific details
     #[test_only]
-    public fun get_coupon_for_testing(coupon_id: u64, lottery_type: u64, lp_amount: u64, epoch: u64, ctx: &mut TxContext): Coupon {
+    public fun get_coupon_for_testing(
+        coupon_id: u64, 
+        lottery_type: u64, 
+        lp_amount: u64, 
+        epoch: u64, 
+        ctx: &mut TxContext
+    ): Coupon {
         Coupon {
             id: object::new(ctx),
             coupon_id,
@@ -288,5 +335,23 @@ module kes_sui_swap::kes_sui_swap {
             lp_amount,
             epoch
         }
+    }
+
+    // New Feature: Deactivate a pool (only for admin)
+    public entry fun deactivate_pool<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        ctx: &mut TxContext
+    ) {
+        assert!(sender(ctx) == pool.id.into(), EInvalidPool); // Ensure the sender is the pool admin
+        pool.is_active = false; // Deactivate the pool
+    }
+
+    // New Feature: Reactivate a pool (only for admin)
+    public entry fun reactivate_pool<KES, SUI>(
+        pool: &mut Pool<KES, SUI>, 
+        ctx: &mut TxContext
+    ) {
+        assert!(sender(ctx) == pool.id.into(), EInvalidPool); // Ensure the sender is the pool admin
+        pool.is_active = true; // Reactivate the pool
     }
 }
