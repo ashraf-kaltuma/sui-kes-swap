@@ -289,4 +289,25 @@ module kes_sui_swap::kes_sui_swap {
             epoch
         }
     }
+
+    #[test_only]
+    public fun get_pool_kes<KES, SUI>(self: &Pool<KES, SUI>) : u64 {
+        self.kes_bal.value()
+    }
+    #[test_only]
+    public fun get_pool_sui<KES, SUI>(self: &Pool<KES, SUI>) : u64 {
+        self.sui_bal.value()
+    }
+    #[test_only]
+    public fun get_lp<KES, SUI>(self: &Pool<KES, SUI>) : u64 {
+        self.lp_supply.supply_value()
+    }
+    #[test_only]
+    public fun get_user_table<KES, SUI>(self: &Pool<KES, SUI>, ctx: &mut TxContext) : bool {
+        self.coupon_table.contains(ctx.sender())
+    }
+
+
+
+
 }
