@@ -2,9 +2,20 @@
 
 [move]
 version = 2
-manifest_digest = "B87E02E3D058E2A3D016AB8353C81AB7BBA44873D47CB9D28BF9784DB84A1053"
-deps_digest = "F8BBB0CCB2491CA29A3DF03D6F92277A4F3574266507ACD77214D37ECA3F3082"
+manifest_digest = "4F1F9C5D56D622E90134FBAF6F0C9D2BE70811BEE052A834894692CBB829804E"
+deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
 dependencies = [
+  { name = "DeepBook" },
+  { name = "Sui" },
+  { name = "SuiSystem" },
+]
+
+[[move.package]]
+name = "DeepBook"
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "framework/testnet", subdir = "crates/sui-framework/packages/deepbook" }
+
+dependencies = [
+  { name = "MoveStdlib" },
   { name = "Sui" },
 ]
 
@@ -20,7 +31,16 @@ dependencies = [
   { name = "MoveStdlib" },
 ]
 
+[[move.package]]
+name = "SuiSystem"
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "framework/testnet", subdir = "crates/sui-framework/packages/sui-system" }
+
+dependencies = [
+  { name = "MoveStdlib" },
+  { name = "Sui" },
+]
+
 [move.toolchain-version]
-compiler-version = "1.30.1"
+compiler-version = "1.34.0"
 edition = "2024.beta"
 flavor = "sui"
